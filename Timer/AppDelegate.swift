@@ -10,14 +10,17 @@ import BackgroundTasks
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
-//e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"bgTaskKey"]
+    
+    let networking = Networking()
+//e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"BGAppRefreshTaskRequest"]
+    //e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"BGAppRefreshTaskRequest || BGProcessingTaskRequest"]
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
        // bgTaskKey
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(sceneDidEnterBackground),
                                                name: Notification.Name("sceneDidEnterBackground"), object: nil)
         
-        application.setMinimumBackgroundFetchInterval(UIApplication.backgroundFetchIntervalMinimum)
+//        application.setMinimumBackgroundFetchInterval(UIApplication.backgroundFetchIntervalMinimum)
         
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { isAllow, error in
@@ -25,23 +28,55 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
        
         if #available(iOS 13, *) {
-//            BGTaskScheduler.shared.register(forTaskWithIdentifier: "bgTaskKey", using: nil) { task in
-//
-//                CordovaIOSPlugin.shared.getUndeliveredNotification { result in
-//                    task.setTaskCompleted(success: true)
-//                    print("task dome")
-//                    self.scheduleAppRefresh()
-//                }
-//            }
             
-            BGTaskScheduler.shared.register(forTaskWithIdentifier: "qweqwe", using: nil) { task in
-                  
-                CordovaIOSPlugin.shared.getUndeliveredNotification { result in
-                    task.setTaskCompleted(success: true)
-                    print("task2 dome")
-                    self.scheduleBackgroundProcessing()
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: "BGAppRefreshTaskRequest",
+                                            using: nil) { task in
+                
+                task.expirationHandler = {
+                    print("Task expired")
+                    task.setTaskCompleted(success: false)
+                  }
+                
+                
+                self.networking.get(taskId: "BGAppRefreshTaskRequest") { result in
+                    
+                    switch result {
+                    
+                    case .success(let success):
+                        CordovaIOSPlugin.shared.createLocalNotification { _ in
+                            task.setTaskCompleted(success: success)
+                        }
+                        task.setTaskCompleted(success: success)
+                    case .failure(let error):
+                        print(error.localizedDescription)
+                        task.setTaskCompleted(success: false)
+                    }
                 }
-              }
+            }
+            
+            BGTaskScheduler.shared.register(forTaskWithIdentifier: "BGProcessingTaskRequest",
+                                            using: nil) { task in
+                
+                task.expirationHandler = {
+                    print("Task expired")
+                    task.setTaskCompleted(success: false)
+                  }
+                
+                self.networking.get(taskId: "BGProcessingTaskRequest") { result in
+                    
+                    switch result {
+                    
+                    case .success(let success):
+                        CordovaIOSPlugin.shared.createLocalNotification { _ in
+                            task.setTaskCompleted(success: success)
+                        }
+                    case .failure(let error):
+                        print(error.localizedDescription)
+                        task.setTaskCompleted(success: false)
+                    }
+                }
+              
+            }
         }
         
         return true
@@ -49,42 +84,42 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     @objc func sceneDidEnterBackground() {
         
-//        self.scheduleAppRefresh()
+        scheduleAppRefresh()
         scheduleBackgroundProcessing()
+        print("")
     }
     
     @available(iOS 13.0, *)
-      func scheduleBackgroundProcessing() {
-          let request = BGProcessingTaskRequest(identifier: "qweqwe")
-          request.requiresNetworkConnectivity = true // Need to true if your task need to network process. Defaults to false.
-          request.requiresExternalPower = false // Need to true if your task requires a device connected to power source. Defaults to false.
-
-          request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60) // Process after 5 minutes.
-
-          do {
-              try BGTaskScheduler.shared.submit(request)
-            print("123")
-          } catch {
-              print("Could not schedule image fetch: (error)")
-          }
-      }
     
-    @available(iOS 13.0, *)
     func scheduleAppRefresh() {
-        
-        let request = BGAppRefreshTaskRequest(identifier: "bgTaskKey")
-       
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60) // Refresh after 5 minutes.
-        
+        let request = BGAppRefreshTaskRequest(identifier: "BGAppRefreshTaskRequest")
+
+        request.earliestBeginDate = Date().addingTimeInterval(TimeInterval(60))  // Refresh after 1 minutes.
+
         do {
-        
             try BGTaskScheduler.shared.submit(request)
-            print("success request")
-            
+            print("BGAppRefreshTaskRequest success request")
         } catch {
             print("Could not schedule app refresh task \(error.localizedDescription)")
         }
     }
+    
+    func scheduleBackgroundProcessing() {
+        let request = BGProcessingTaskRequest(identifier: "BGProcessingTaskRequest")
+        request.requiresNetworkConnectivity = true // Need to true if your task need to network process. Defaults to false.
+        request.requiresExternalPower = false // Need to true if your task requires a device connected to power source. Defaults to false.
+        
+        request.earliestBeginDate = Date().addingTimeInterval(TimeInterval(60))  // Process after 1 minutes.
+        
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            print("BGProcessingTaskRequest succes request")
+        } catch {
+            print("Could not schedule image fetch: (error)")
+        }
+    }
+    
+    @available(iOS 13.0, *)
 
     // MARK: UISceneSession Lifecycle
 
@@ -134,92 +169,3 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         completionHandler()
     }
 }
-class CordovaIOSPlugin: NSObject, UNUserNotificationCenterDelegate, URLSessionDelegate, URLSessionDownloadDelegate {
-    
-    static let shared = CordovaIOSPlugin()
-    private override init() { }
-    
-    @objc private func notificationPermissionRequest() {
-        
-        UNUserNotificationCenter.current().getNotificationSettings(completionHandler: { (settings) in
-            
-            if settings.authorizationStatus == .authorized {
-                
-                self.createLocalNotification()
-            }
-        })
-
-    }
-    
-    @objc private func createLocalNotification() {
-      
-        let content = UNMutableNotificationContent()
-
-        content.title = "DHL push delivery"
-        content.subtitle = "Test local push"
-        content.body = "Hello body"
-        content.categoryIdentifier = "actionCategory"
-        content.sound = UNNotificationSound.default
-
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
-
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-        
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
-        self.completionHandler(.newData)
-    }
-    
-    var completionHandler: (UIBackgroundFetchResult) -> Void = { _ in }
-    
-    func getUndeliveredNotification(completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
-        
-        guard let url = URL(string: "https://jsonplaceholder.typicode.com/comments?postId=1") else { return }
-        self.completionHandler = completionHandler
-        let configuration = URLSessionConfiguration.background(withIdentifier: "com.my.app")
-        configuration.sessionSendsLaunchEvents = true
-        configuration.isDiscretionary = true
-        configuration.allowsCellularAccess = true
-        configuration.shouldUseExtendedBackgroundIdleMode = true
-        configuration.waitsForConnectivity = true
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-    
-        let task = session.downloadTask(with: request)
-
-        if #available(iOS 11, *) {
-            task.countOfBytesClientExpectsToSend = 200
-            task.countOfBytesClientExpectsToReceive = 1700
-        }
-        task.resume()
-        
-//        URLSession.shared.dataTask(with: request) { data, response, error in
-//            self.notificationPermissionRequest(completionHandler: completionHandler)
-//        }.resume()
-    }
-    
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        self.notificationPermissionRequest()
-    }
-    
-    func urlSession(_ session: URLSession, didBecomeInvalidWithError error: Error?) {
-        print(error?.localizedDescription)
-    }
-   
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        
-        completionHandler([.alert, .badge, .sound])
-    }
-    
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        print(response.notification.request.content.userInfo)
-        completionHandler()
-    }
-}
-
-

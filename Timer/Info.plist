@@ -4,8 +4,8 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>bgTaskKey</string>
-		<string>qweqwe</string>
+		<string>BGAppRefreshTaskRequest</string>
+		<string>BGProcessingTaskRequest</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
