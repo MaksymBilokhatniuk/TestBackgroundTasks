@@ -12,32 +12,47 @@ import BackgroundTasks
 class AppDelegate: UIResponder, UIApplicationDelegate {
     
     let networking = Networking()
-//e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"BGAppRefreshTaskRequest"]
+    //e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"BGProcessingTaskRequest"]
     //e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"BGAppRefreshTaskRequest || BGProcessingTaskRequest"]
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-       // bgTaskKey
+        // bgTaskKey
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(sceneDidEnterBackground),
                                                name: Notification.Name("sceneDidEnterBackground"), object: nil)
         
-//        application.setMinimumBackgroundFetchInterval(UIApplication.backgroundFetchIntervalMinimum)
+        //        application.setMinimumBackgroundFetchInterval(UIApplication.backgroundFetchIntervalMinimum)
         
         UNUserNotificationCenter.current().delegate = self
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { isAllow, error in
             
         }
-       
+        
+        if let BGAppRefreshTaskRequestCount = UserDefaults.standard.object(forKey: "BGAppRefreshTaskRequestCount") as? Int {
+            
+            print("################ BGAppRefreshTaskRequest count \(BGAppRefreshTaskRequestCount)")
+        }
+
+        if let BGProcessingTaskRequest = UserDefaults.standard.object(forKey: "BGProcessingTaskRequestCount") as? Int {
+            
+            print("################ BGProcessingTaskRequest count \(BGProcessingTaskRequest)")
+        }
+        
         if #available(iOS 13, *) {
             
             BGTaskScheduler.shared.register(forTaskWithIdentifier: "BGAppRefreshTaskRequest",
-                                            using: nil) { task in
+                                            using: DispatchQueue.main) { [self] task in
                 
                 task.expirationHandler = {
                     print("Task expired")
                     task.setTaskCompleted(success: false)
-                  }
-                
-                
+                }
+
+                if let count = UserDefaults.standard.object(forKey: "BGAppRefreshTaskRequestCount") as? Int {
+                    UserDefaults.standard.setValue(count + 1, forKey: "BGAppRefreshTaskRequestCount")
+                } else {
+                    UserDefaults.standard.setValue(1, forKey: "BGAppRefreshTaskRequestCount")
+                }
+
                 self.networking.get(taskId: "BGAppRefreshTaskRequest") { result in
                     
                     switch result {
@@ -51,16 +66,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                         print(error.localizedDescription)
                         task.setTaskCompleted(success: false)
                     }
+                    
+                    self.scheduleAppRefresh()
                 }
             }
             
             BGTaskScheduler.shared.register(forTaskWithIdentifier: "BGProcessingTaskRequest",
-                                            using: nil) { task in
+                                            using: DispatchQueue.main) { task in
                 
                 task.expirationHandler = {
                     print("Task expired")
                     task.setTaskCompleted(success: false)
-                  }
+                }
+                
+                if let count = UserDefaults.standard.object(forKey: "BGProcessingTaskRequestCount") as? Int {
+                    UserDefaults.standard.setValue(count + 1, forKey: "BGProcessingTaskRequestCount")
+                } else {
+                    UserDefaults.standard.setValue(1, forKey: "BGProcessingTaskRequestCount")
+                }
                 
                 self.networking.get(taskId: "BGProcessingTaskRequest") { result in
                     
@@ -68,14 +91,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                     
                     case .success(let success):
                         CordovaIOSPlugin.shared.createLocalNotification { _ in
+                            
+//                            BGTaskScheduler.shared.getPendingTaskRequests { tasks in
+//                                print("")
+//                                task.setTaskCompleted(success: success)
+//                            }
                             task.setTaskCompleted(success: success)
                         }
                     case .failure(let error):
                         print(error.localizedDescription)
                         task.setTaskCompleted(success: false)
                     }
+                    
+                    self.scheduleBackgroundProcessing()
                 }
-              
             }
         }
         
@@ -93,9 +122,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     
     func scheduleAppRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: "BGAppRefreshTaskRequest")
-
+        
         request.earliestBeginDate = Date().addingTimeInterval(TimeInterval(60))  // Refresh after 1 minutes.
-
+        
         do {
             try BGTaskScheduler.shared.submit(request)
             print("BGAppRefreshTaskRequest success request")
@@ -120,23 +149,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
     
     @available(iOS 13.0, *)
-
+    
     // MARK: UISceneSession Lifecycle
-
+    
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         // Called when a new scene session is being created.
         // Use this method to select a configuration to create the new scene with.
         return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
-
+    
     func application(_ application: UIApplication, didDiscardSceneSessions sceneSessions: Set<UISceneSession>) {
         // Called when the user discards a scene session.
         // If any sessions were discarded while the application was not running, this will be called shortly after application:didFinishLaunchingWithOptions.
         // Use this method to release any resources that were specific to the discarded scenes, as they will not return.
     }
-
+    
     func applicationDidEnterBackground(_ application: UIApplication) {
-      
+        
         if #available(iOS 13, *) {
             
             self.scheduleAppRefresh()
